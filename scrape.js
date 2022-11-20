@@ -9,6 +9,12 @@ const NYC_GOV = 'https://www1.nyc.gov';
 
 /** Top-level function to upload new docs to DocumentCloud. */
 async function start() {
+  const authToken = await getAuthToken();
+  const failedDocs = await checkDocuments(authToken);
+  if (failedDocs !== 0) {
+    process.exitCode = failedDocs;
+  }
+
   const existingDocs = await loadExistingDocs();
   const existingDocsSet = getExistingDocsSet(existingDocs);
 
@@ -32,10 +38,49 @@ async function start() {
       ccrbClosingReports,
   );
 
-  const newDocs = await processDocs(allDocs, existingDocsSet);
+  const newDocs = await processDocs(allDocs, existingDocsSet, authToken);
   existingDocs.documents = existingDocs.documents.concat(newDocs);
 
   writeUpdatedDocs(existingDocs);
+}
+
+/**
+ * Check that already uploaded docs have successfully processed. This will exit
+ * with a non-zero exit code (after uploading all docs) to alert that there are
+ * some docs that need manual fixing.
+ */
+async function checkDocuments(authToken) {
+  let badDocCount = 0;
+
+  let url = 'https://api.www.documentcloud.org/api/documents/?format=json&user=106646&per_page=100';
+  while (url !== null) {
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+      }});
+    if (!response.ok) {
+      console.log(`error: ${await response.text()}`);
+      return -1;
+    }
+
+    const data = await response.json();
+    for (const doc of data.results) {
+      if (doc.status !== 'success') {
+        badDocCount++;
+        console.log(
+            `::warning ::found unprocessed doc: ${JSON.stringify(doc)}`);
+      }
+    }
+
+    url = data.next;
+    if (url !== null) {
+      // DocumentCloud allows 10 requests per second, so wait 100ms between
+      // requests.
+      await delay(100);
+    }
+  }
+
+  return badDocCount;
 }
 
 /** Load documents that have already been uploaded. */
@@ -49,8 +94,10 @@ function getExistingDocsSet(existingDocs) {
 }
 
 /** Get the URLs of the NYPD profile documents. */
-function getProfileDocs() {
-  return getDocsFromCsv('https://raw.githubusercontent.com/nyc-data/nypdonline-officer-profiles/main/documents.csv', 2);
+async function getProfileDocs() {
+  const docs = await getDocsFromCsv('https://raw.githubusercontent.com/nyc-data/nypdonline-officer-profiles/main/documents.csv', 2);
+  checkDocCount('profile', 750, docs);
+  return docs;
 }
 
 /**
@@ -80,8 +127,10 @@ async function getAllProfileDocs() { // eslint-disable-line no-unused-vars
 }
 
 /** Get the URLs of NYPD Departure Letters (from the CCRB website). */
-function getDepartureLetters() {
-  return getDocsFromCsv('https://raw.githubusercontent.com/nypd-doc-mirror/ccrb-complaint-records/main/departure-letters.csv', 3);
+async function getDepartureLetters() {
+  const docs = await getDocsFromCsv('https://raw.githubusercontent.com/nyc-data/nycgov-ccrb-mos-histories/main/departureletters.csv', 6);
+  checkDocCount('departure letter', 150, docs);
+  return docs;
 }
 
 /**
@@ -92,15 +141,19 @@ async function getTrialDecisions() {
   const response = await fetch(
       'https://raw.githubusercontent.com/nyc-data/nypdonline-officer-profiles/main/trial-decisions.json');
   const json = await response.json();
-  return json.map((record) => record.url);
+  const docs = json.map((record) => record.url);
+  checkDocCount('trial decision', 1500, docs);
+  return docs;
 }
 
 /** Gets the URLs of closing reports posted to the CCRB website. */
 async function getCcrbClosingReports() {
   const filenames = await getDocsFromCsv(
       'https://www.nyc.gov/assets/ccrb/csv/closing-reports/redacted-closing-reports.csv', 2);
-  return filenames.map(
+  const docs = filenames.map(
       (filename) => `https://www1.nyc.gov/assets/ccrb/downloads/pdf/closing-reports/${filename}`);
+  checkDocCount('CCRB closing report', 1000, docs);
+  return docs;
 }
 
 /** Uploads all docs in a file (each URL on a new line). */
@@ -137,11 +190,28 @@ async function getApuDocs() {
       .map((i, a) => $(a))
       .filter((i, a) => a.attr('href').endsWith('.pdf'))
       .map((i, a) => NYC_GOV + a.attr('href'));
-  return pdfs.get();
+  const docs = pdfs.get();
+  checkDocCount('APU', 15, docs);
+  return docs;
+}
+
+/**
+ * Check that we have roughly the right number of docs, as a proxy for if
+ * scraping is working. Log a warning and set a non-zero error code if there is
+ * an issue.
+ */
+function checkDocCount(docType, expected, docs) {
+  console.log(`found ${docs.length} ${docType} docs`);
+  if (docs.length < expected) {
+    console.log(
+        `::warning ::expected at least ${expected} ${docType} docs, but got ` +
+            docs.length);
+    process.exitCode = 59;
+  }
 }
 
 /** Uploads any new documents and returns the newly uploaded documents. */
-async function processDocs(docUrls, existingDocs) {
+async function processDocs(docUrls, existingDocs, authToken) {
   const newDocuments = [];
   for (const url of docUrls) {
     if (!existingDocs.has(url)) {
@@ -149,9 +219,8 @@ async function processDocs(docUrls, existingDocs) {
       existingDocs.add(url);
     }
   }
-  const token = await getAuthToken();
 
-  return uploadDocs(newDocuments, token);
+  return uploadDocs(newDocuments, authToken);
 }
 
 /** Create a Document JSON object for the DocumentCloud API. */
@@ -183,13 +252,17 @@ async function getAuthToken() {
   return data.access;
 }
 
+/** Returns a promise that resolves after the given number of milliseconds. */
+async function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Uploads the given docs (in DocumentCloud JSON format) and returns details
  * about the updated docs.
  */
 async function uploadDocs(docs, accessToken) {
   const addedDocs = [];
-  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   for (let i = 0; i < Math.ceil(docs.length / DOCS_PER_REQUEST); i++) {
     if (i !== 0) {
       // DocumentCloud allows 10 requests per second, so wait 100ms between
