@@ -147,7 +147,18 @@ function getExistingDocsSet(existingDocs) {
 
 /** Get the URLs of the NYPD profile documents. */
 async function getProfileDocs() {
-  const docs = await getDocsFromCsv('https://raw.githubusercontent.com/nyc-data/nypdonline-officer-profiles/main/documents.csv', 2);
+  const docs = [];
+  for (const letter of [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ']) {
+    const response = await fetch(
+      `https://raw.githubusercontent.com/nyc-data/nypdonline-officer-profiles/refs/heads/main/nypd-profiles-${letter}.json`
+    );
+    const json = await response.json();
+    docs.push(
+      ...json.flatMap((officer) =>
+        officer.reports.documents.map((document) => document.url)
+      )
+    );
+  }
   checkDocCount('profile', 800, docs);
   return docs;
 }
@@ -180,7 +191,9 @@ async function getAllProfileDocs() { // eslint-disable-line no-unused-vars
 
 /** Get the URLs of NYPD Departure Letters (from the CCRB website). */
 async function getDepartureLetters() {
-  const docs = await getDocsFromCsv('https://raw.githubusercontent.com/nyc-data/nycgov-ccrb-mos-histories/main/departureletters.csv', 6);
+  const response = await fetch('https://raw.githubusercontent.com/nyc-data/nycgov-ccrb-mos-histories/refs/heads/main/departureletters.json');
+  const json = await response.json();
+  const docs = json.departureLetters.map((obj) => obj.FileLink);
   checkDocCount('departure letter', 225, docs);
   return docs;
 }
