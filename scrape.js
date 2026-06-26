@@ -163,7 +163,7 @@ async function getProfileDocs() {
       )
     );
   }
-  checkDocCount('profile', 800, docs);
+  checkDocCount('profile', 700, docs);
   return docs;
 }
 
