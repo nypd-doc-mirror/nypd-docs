@@ -19,7 +19,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version: '24.16'
       - name: Install and run
         env:
           DOCUMENT_CLOUD_USERNAME: '${{ secrets.DOCUMENT_CLOUD_USERNAME }}'
