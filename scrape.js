@@ -1,13 +1,14 @@
 const cheerio = require('cheerio');
 const fetch = require('node-fetch');
 const pdftk = require('node-pdftk');
-const {promises: fs} = require('fs');
-const {parse: parseCsv} = require('csv-parse/sync');
+const { promises: fs } = require('fs');
+const { parse: parseCsv } = require('csv-parse/sync');
 
 const EXISTING_DOCS_FILE = 'documents.json';
 const DOCS_PER_REQUEST = 25;
 const NYC_GOV = 'https://www.nyc.gov';
-const DOCUMENT_CLOUD_USER_AGENT = 'https://github.com/nypd-doc-mirror/nypd-docs';
+const DOCUMENT_CLOUD_USER_AGENT =
+  'https://github.com/nypd-doc-mirror/nypd-docs';
 
 /**
  * Documents that exist, but aren't linked to anywhere, which could come (for
@@ -77,7 +78,8 @@ async function start() {
 
   const ccrbClosingReports = await getCcrbClosingReports();
 
-  const allDocs = [].concat(
+  const allDocs = []
+    .concat(
       profileDocs,
       apuDocs,
       apuLinkedDocs,
@@ -86,7 +88,8 @@ async function start() {
       trialDecisions,
       ccrbClosingReports,
       EXTRA_DOCS,
-  ).map((url) => url.replaceAll(' ', '%20'));
+    )
+    .map((url) => url.replaceAll(' ', '%20'));
 
   const newDocs = await processDocs(allDocs, existingDocsSet, authToken);
   existingDocs.documents = existingDocs.documents.concat(newDocs);
@@ -103,16 +106,19 @@ async function start() {
 async function checkDocuments(authToken) {
   let badDocCount = 0;
 
-  let url = 'https://api.www.documentcloud.org/api/documents/?format=json&user=106646&per_page=100';
+  let url =
+    'https://api.www.documentcloud.org/api/documents/?format=json&user=106646&per_page=100';
   while (url !== null) {
     const response = await fetch(url, {
       headers: {
-        'Authorization': `Bearer ${authToken}`,
+        Authorization: `Bearer ${authToken}`,
         'User-Agent': DOCUMENT_CLOUD_USER_AGENT,
-      }});
+      },
+    });
     if (!response.ok) {
       console.log(
-          `::warning ::error fetching ${url}: ${await response.text()}`);
+        `::warning ::error fetching ${url}: ${await response.text()}`,
+      );
       process.exitCode = 62;
       return -1;
     }
@@ -122,7 +128,8 @@ async function checkDocuments(authToken) {
       if (doc.status !== 'success') {
         badDocCount++;
         console.log(
-            `::warning ::found unprocessed doc: ${JSON.stringify(doc)}`);
+          `::warning ::found unprocessed doc: ${JSON.stringify(doc)}`,
+        );
       }
     }
 
@@ -145,7 +152,9 @@ async function loadExistingDocs() {
 /** Get a Set of the source URLs of the already uploaded documents. */
 function getExistingDocsSet(existingDocs) {
   const docsSet = new Set(existingDocs.documents.map((e) => e.source_url));
-  existingDocs.documents.flatMap((e) => e.alternate_urls).forEach((e) => docsSet.add(e));
+  existingDocs.documents
+    .flatMap((e) => e.alternate_urls)
+    .forEach((e) => docsSet.add(e));
   return docsSet;
 }
 
@@ -154,13 +163,14 @@ async function getProfileDocs() {
   const docs = [];
   for (const letter of [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ']) {
     const response = await fetch(
-      `https://raw.githubusercontent.com/nyc-data/nypdonline-officer-profiles/refs/heads/main/nypd-profiles-${letter}.json`
+      `https://raw.githubusercontent.com/nyc-data/nypdonline-officer-profiles/refs/heads/main/nypd-profiles-${letter}.json`,
     );
     const json = await response.json();
     docs.push(
-      ...json.flatMap((officer) =>
-        officer.reports.documents?.map((document) => document.url) ?? []
-      )
+      ...json.flatMap(
+        (officer) =>
+          officer.reports.documents?.map((document) => document.url) ?? [],
+      ),
     );
   }
   checkDocCount('profile', 700, docs);
@@ -171,16 +181,18 @@ async function getProfileDocs() {
  * Search the full commit history to find any previous docs that are now
  * removed.
  */
-async function getAllProfileDocs() { // eslint-disable-line no-unused-vars
+async function getAllProfileDocs() {
   const docs = new Set();
-  let apiUrl = 'https://api.github.com/repos/nyc-data/nypdonline-officer-profiles/commits?path=/documents.csv';
+  let apiUrl =
+    'https://api.github.com/repos/nyc-data/nypdonline-officer-profiles/commits?path=/documents.csv';
   while (apiUrl) {
     const response = await fetch(apiUrl);
     const json = await response.json();
     for (const commit of json) {
       const hash = commit.sha;
       const documentsResponse = await fetch(
-          `https://raw.githubusercontent.com/nyc-data/nypdonline-officer-profiles/${hash}/documents.csv`);
+        `https://raw.githubusercontent.com/nyc-data/nypdonline-officer-profiles/${hash}/documents.csv`,
+      );
       const body = await documentsResponse.text();
       getDocsFromCsv(body).forEach(docs.add, docs);
     }
@@ -189,16 +201,24 @@ async function getAllProfileDocs() { // eslint-disable-line no-unused-vars
     apiUrl = linkHeader.match(/<([^>]+)>; rel="next"/)?.[1];
   }
   // Remove a doc with a malformed URL.
-  docs.delete('https://oip.nypdonline.orghttps://oip-admin.nypdonline.org/files/Monjaras_10262021.pdf');
+  docs.delete(
+    'https://oip.nypdonline.orghttps://oip-admin.nypdonline.org/files/Monjaras_10262021.pdf',
+  );
   return Array.from(docs);
 }
 
 /** Get the URLs of NYPD Departure Letters (from the CCRB website). */
 async function getDepartureLetters() {
-  const response = await fetch('https://raw.githubusercontent.com/nyc-data/nycgov-ccrb-mos-histories/refs/heads/main/departureletters.json');
+  const response = await fetch(
+    'https://raw.githubusercontent.com/nyc-data/nycgov-ccrb-mos-histories/refs/heads/main/departureletters.json',
+  );
   const json = await response.json();
-  const docs = json.departureLetters.map(
-      (obj) => obj.FileLink.replace('https://www1.nyc.gov/assets/ccrb/downloads/pdf/', 'https://www.nyc.gov/assets/ccrb/downloads/pdf/'));
+  const docs = json.departureLetters.map((obj) =>
+    obj.FileLink.replace(
+      'https://www1.nyc.gov/assets/ccrb/downloads/pdf/',
+      'https://www.nyc.gov/assets/ccrb/downloads/pdf/',
+    ),
+  );
   checkDocCount('departure letter', 225, docs);
   return docs;
 }
@@ -209,7 +229,8 @@ async function getDepartureLetters() {
  */
 async function getTrialDecisions() {
   const response = await fetch(
-      'https://raw.githubusercontent.com/nyc-data/nypdonline-officer-profiles/main/trial-decisions.json');
+    'https://raw.githubusercontent.com/nyc-data/nypdonline-officer-profiles/main/trial-decisions.json',
+  );
   const json = await response.json();
   const docs = json.map((record) => record.url);
   checkDocCount('trial decision', 1650, docs);
@@ -219,15 +240,19 @@ async function getTrialDecisions() {
 /** Gets the URLs of closing reports posted to the CCRB website. */
 async function getCcrbClosingReports() {
   const filenames = await getDocsFromCsv(
-      'https://www.nyc.gov/assets/ccrb/csv/closing-reports/redacted-closing-reports.csv', 2);
+    'https://www.nyc.gov/assets/ccrb/csv/closing-reports/redacted-closing-reports.csv',
+    2,
+  );
   const docs = filenames.map(
-      (filename) => `https://www.nyc.gov/assets/ccrb/downloads/pdf/closing-reports/${filename}`);
+    (filename) =>
+      `https://www.nyc.gov/assets/ccrb/downloads/pdf/closing-reports/${filename}`,
+  );
   checkDocCount('CCRB closing report', 3150, docs);
   return docs;
 }
 
 /** Uploads all docs in a file (each URL on a new line). */
-async function getDocsFromFile(filename) { // eslint-disable-line no-unused-vars
+async function getDocsFromFile(filename) {
   const contents = await fs.readFile(filename);
   return contents.toString().trim().split('\n');
 }
@@ -239,8 +264,8 @@ async function getDocsFromFile(filename) { // eslint-disable-line no-unused-vars
 async function getDocsFromCsv(url, docColumn) {
   const response = await fetch(url, {
     headers: {
-      'User-Agent': 'UA'
-    }
+      'User-Agent': 'UA',
+    },
   });
   const body = await response.text();
 
@@ -257,7 +282,8 @@ async function getDocsFromCsv(url, docColumn) {
 /** Returns URLs of all CCRB APU summary docs. */
 async function getApuDocs() {
   const docs = await getPdfsFromUrl(
-      `${NYC_GOV}/site/ccrb/prosecution/apu-quarterly-reports.page`);
+    `${NYC_GOV}/site/ccrb/prosecution/apu-quarterly-reports.page`,
+  );
   checkDocCount('APU', 25, docs);
   return docs;
 }
@@ -265,15 +291,15 @@ async function getApuDocs() {
 async function getPdfsFromUrl(url) {
   const response = await fetch(url, {
     headers: {
-      'User-Agent': 'UA'
-    }
+      'User-Agent': 'UA',
+    },
   });
   const html = await response.text();
   const $ = cheerio.load(html);
   const pdfs = $('a')
-      .map((i, a) => $(a))
-      .filter((i, a) => a.attr('href').endsWith('.pdf'))
-      .map((i, a) => NYC_GOV + a.attr('href'));
+    .map((i, a) => $(a))
+    .filter((i, a) => a.attr('href').endsWith('.pdf'))
+    .map((i, a) => NYC_GOV + a.attr('href'));
   return pdfs.get();
 }
 
@@ -291,8 +317,8 @@ async function getApuLinkedDocs(apuDocs, existingDocs) {
     // Grab any PDFs linked from the APU reports.
     const response = await fetch(apuDoc, {
       headers: {
-        'User-Agent': 'UA'
-      }
+        'User-Agent': 'UA',
+      },
     });
     const apu = Buffer.from(await response.arrayBuffer());
     // From https://stackoverflow.com/a/43810795
@@ -300,10 +326,12 @@ async function getApuLinkedDocs(apuDocs, existingDocs) {
     const urls = out.toString().match(/https?:\/\/.+\.pdf/g);
     if (urls !== null) {
       const matches = new Set(
-          out.toString()
-              .match(/https?:\/\/.+\.pdf/g)
-              .map(url => url.replace('\\(', '('))
-              .map(url => url.replace('\\)', ')')));
+        out
+          .toString()
+          .match(/https?:\/\/.+\.pdf/g)
+          .map((url) => url.replace('\\(', '('))
+          .map((url) => url.replace('\\)', ')')),
+      );
       docs.push(...matches);
     }
   }
@@ -314,7 +342,8 @@ async function getApuLinkedDocs(apuDocs, existingDocs) {
 
 async function getCCRBAnnualReports() {
   const docs = await getPdfsFromUrl(
-      `${NYC_GOV}/site/ccrb/policy/annual-bi-annual-reports.page`);
+    `${NYC_GOV}/site/ccrb/policy/annual-bi-annual-reports.page`,
+  );
   checkDocCount('CCRB annual reports', 50, docs);
   return docs;
 }
@@ -328,8 +357,9 @@ function checkDocCount(docType, expected, docs) {
   console.log(`found ${docs.length} ${docType} docs`);
   if (docs.length < expected) {
     console.log(
-        `::warning ::expected at least ${expected} ${docType} docs, but got ` +
-            docs.length);
+      `::warning ::expected at least ${expected} ${docType} docs, but got ` +
+        docs.length,
+    );
     process.exitCode = 59;
   }
 }
@@ -352,9 +382,7 @@ function createDocument(sourceUrl) {
   const urlParts = sourceUrl.split('/');
   return {
     access: 'public',
-    data: {'_tag': [
-      'NYPD',
-    ]},
+    data: { _tag: ['NYPD'] },
     file_url: sourceUrl,
     source: sourceUrl,
     title: urlParts[urlParts.length - 1],
@@ -399,14 +427,16 @@ async function uploadDocs(docs, accessToken) {
       await delay(100);
     }
 
-    const requestDocs =
-        docs.slice(i * DOCS_PER_REQUEST, (i + 1) * DOCS_PER_REQUEST);
+    const requestDocs = docs.slice(
+      i * DOCS_PER_REQUEST,
+      (i + 1) * DOCS_PER_REQUEST,
+    );
     const requestDocsForPost = requestDocs.map((doc) => {
       if (doc.file_url.startsWith(CCRB_DOC_PREFIX)) {
         // Documents on the CCRB website check the user agent and don't allow the one DocumentCloud
         // uses to fetch documents. This removes file_url so DocumentCloud won't fetch the
         // document. Then we manually fetch and upload it below.
-        doc = {...doc};
+        doc = { ...doc };
         delete doc.file_url;
       }
       return doc;
@@ -414,31 +444,37 @@ async function uploadDocs(docs, accessToken) {
 
     let data = null;
     if (!DRY_RUN) {
-      const response =
-          await fetch('https://api.www.documentcloud.org/api/documents/', {
-            method: 'POST',
-            body: JSON.stringify(requestDocs),
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-              'User-Agent': DOCUMENT_CLOUD_USER_AGENT,
-            }});
+      const response = await fetch(
+        'https://api.www.documentcloud.org/api/documents/',
+        {
+          method: 'POST',
+          body: JSON.stringify(requestDocs),
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'User-Agent': DOCUMENT_CLOUD_USER_AGENT,
+          },
+        },
+      );
       if (!response.ok) {
         console.log(
-            `::warning ::error: ${await response.text()} ` +
-            `on ${JSON.stringify(requestDocs)}`);
+          `::warning ::error: ${await response.text()} ` +
+            `on ${JSON.stringify(requestDocs)}`,
+        );
         process.exitCode = 60;
         return addedDocs;
       }
       data = await response.json();
       if (data.length !== requestDocs.length) {
         console.log(
-            `::warning ::length mismatch - ` +
-            `${data.length} / ${requestDocs.length}`);
+          `::warning ::length mismatch - ` +
+            `${data.length} / ${requestDocs.length}`,
+        );
         console.log(`::warning ::data: ${JSON.stringify(data, null, '\t')}`);
         console.log(
-            `::warning ::dequesetDcs: ` +
-            `${JSON.stringify(requestDocs, null, '\t')}`);
+          `::warning ::dequesetDcs: ` +
+            `${JSON.stringify(requestDocs, null, '\t')}`,
+        );
         process.exitCode = 61;
         return addedDocs;
       }
@@ -450,29 +486,37 @@ async function uploadDocs(docs, accessToken) {
       const returnedDoc = data[i];
       if (originalDoc.file_url.startsWith(CCRB_DOC_PREFIX)) {
         // If DocumentCloud didn't fetch the document, fetch it ourselves and upload it.
-        const response = await fetch(originalDoc.file_url, {headers: {'User-Agent': 'UA'}});
+        const response = await fetch(originalDoc.file_url, {
+          headers: { 'User-Agent': 'UA' },
+        });
         const pdf = await response.blob();
-        const r = await fetch(returnedDoc.presigned_url, {method: 'PUT', body: pdf});
-        toProcess.push({id: returnedDoc.id});
+        const r = await fetch(returnedDoc.presigned_url, {
+          method: 'PUT',
+          body: pdf,
+        });
+        toProcess.push({ id: returnedDoc.id });
       }
       addedDocs.push({
         source_url: originalDoc.file_url,
-        permanent_url: data === null ?
-            'DRY_RUN_PLACEHOLDER' :
-            returnedDoc.canonical_url,
+        permanent_url:
+          data === null ? 'DRY_RUN_PLACEHOLDER' : returnedDoc.canonical_url,
       });
     }
 
     if (toProcess.length) {
       // Kick off processing for any docs we uploaded ourselves.
-      const response = await fetch('https://api.www.documentcloud.org/api/documents/process/', {
+      const response = await fetch(
+        'https://api.www.documentcloud.org/api/documents/process/',
+        {
           method: 'POST',
           body: JSON.stringify(toProcess),
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
             'User-Agent': DOCUMENT_CLOUD_USER_AGENT,
-      }});
+          },
+        },
+      );
     }
   }
   return addedDocs;
