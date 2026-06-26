@@ -42,6 +42,8 @@ const DOCS_TO_SKIP = new Set([
   'https://www.nyc.gov/assets/ccrb/downloads/pdf/APU-Documents/2202304127-Tax963837-APU-Final-Documents.pdf',
 ]);
 
+const CCRB_DOC_PREFIX = 'https://www.nyc.gov/assets/ccrb/downloads/pdf/';
+
 /** Set to true to skip uploading to DocumentCloud. */
 const DRY_RUN = false;
 
@@ -373,6 +375,9 @@ async function getAuthToken() {
     },
   });
   const data = await response.json();
+  if (!data.access) {
+    throw new Error(`auth error ${JSON.stringify(data)}`);
+  }
   return data.access;
 }
 
@@ -396,6 +401,17 @@ async function uploadDocs(docs, accessToken) {
 
     const requestDocs =
         docs.slice(i * DOCS_PER_REQUEST, (i + 1) * DOCS_PER_REQUEST);
+    const requestDocsForPost = requestDocs.map((doc) => {
+      if (doc.file_url.startsWith(CCRB_DOC_PREFIX)) {
+        // Documents on the CCRB website check the user agent and don't allow the one DocumentCloud
+        // uses to fetch documents. This removes file_url so DocumentCloud won't fetch the
+        // document. Then we manually fetch and upload it below.
+        doc = {...doc};
+        delete doc.file_url;
+      }
+      return doc;
+    });
+
     let data = null;
     if (!DRY_RUN) {
       const response =
@@ -428,13 +444,35 @@ async function uploadDocs(docs, accessToken) {
       }
     }
 
+    const toProcess = [];
     for (let i = 0; i < requestDocs.length; i++) {
+      const originalDoc = requestDocs[i];
+      const returnedDoc = data[i];
+      if (originalDoc.file_url.startsWith(CCRB_DOC_PREFIX)) {
+        // If DocumentCloud didn't fetch the document, fetch it ourselves and upload it.
+        const response = await fetch(originalDoc.file_url, {headers: {'User-Agent': 'UA'}});
+        const pdf = await response.blob();
+        const r = await fetch(returnedDoc.presigned_url, {method: 'PUT', body: pdf});
+        toProcess.push({id: returnedDoc.id});
+      }
       addedDocs.push({
-        source_url: requestDocs[i].file_url,
+        source_url: originalDoc.file_url,
         permanent_url: data === null ?
             'DRY_RUN_PLACEHOLDER' :
-            data[i].canonical_url,
+            returnedDoc.canonical_url,
       });
+    }
+
+    if (toProcess.length) {
+      // Kick off processing for any docs we uploaded ourselves.
+      const response = await fetch('https://api.www.documentcloud.org/api/documents/process/', {
+          method: 'POST',
+          body: JSON.stringify(toProcess),
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'User-Agent': DOCUMENT_CLOUD_USER_AGENT,
+      }});
     }
   }
   return addedDocs;
