@@ -9,6 +9,8 @@ const DOCS_PER_REQUEST = 25;
 const NYC_GOV = 'https://www.nyc.gov';
 const DOCUMENT_CLOUD_USER_AGENT =
   'https://github.com/nypd-doc-mirror/nypd-docs';
+const NYC_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
 
 /**
  * Documents that exist, but aren't linked to anywhere, which could come (for
@@ -264,7 +266,7 @@ async function getDocsFromFile(filename) {
 async function getDocsFromCsv(url, docColumn) {
   const response = await fetch(url, {
     headers: {
-      'User-Agent': 'UA',
+      'User-Agent': NYC_USER_AGENT,
     },
   });
   const body = await response.text();
@@ -291,7 +293,7 @@ async function getApuDocs() {
 async function getPdfsFromUrl(url) {
   const response = await fetch(url, {
     headers: {
-      'User-Agent': 'UA',
+      'User-Agent': NYC_USER_AGENT,
     },
   });
   const html = await response.text();
@@ -317,7 +319,7 @@ async function getApuLinkedDocs(apuDocs, existingDocs) {
     // Grab any PDFs linked from the APU reports.
     const response = await fetch(apuDoc, {
       headers: {
-        'User-Agent': 'UA',
+        'User-Agent': NYC_USER_AGENT,
       },
     });
     const apu = Buffer.from(await response.arrayBuffer());
@@ -487,12 +489,13 @@ async function uploadDocs(docs, accessToken) {
       if (originalDoc.file_url.startsWith(CCRB_DOC_PREFIX)) {
         // If DocumentCloud didn't fetch the document, fetch it ourselves and upload it.
         const response = await fetch(originalDoc.file_url, {
-          headers: { 'User-Agent': 'UA' },
+          headers: { 'User-Agent': NYC_USER_AGENT },
         });
         const pdf = await response.blob();
         const r = await fetch(returnedDoc.presigned_url, {
           method: 'PUT',
           body: pdf,
+          headers: { 'User-Agent': NYC_USER_AGENT },
         });
         toProcess.push({ id: returnedDoc.id });
       }
