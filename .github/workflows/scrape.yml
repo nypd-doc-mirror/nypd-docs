@@ -9,6 +9,8 @@ on:
 jobs:
   scheduled:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: awalsh128/cache-apt-pkgs-action@v1.6.1
         with:
